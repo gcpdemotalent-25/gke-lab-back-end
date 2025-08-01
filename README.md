@@ -1,27 +1,71 @@
-# Getting Started
+# Projet Backend Spring Boot - Lab de déploiement sur GKE
 
-### Reference Documentation 
+Ce projet est le service backend de notre application de laboratoire. Il s'agit d'une simple API REST construite avec Spring Boot qui expose un endpoint `/api/hello`. Il est destiné à être conteneurisé avec Docker et déployé sur Google Kubernetes Engine (GKE).
 
-For further  reference, please consider the following sections:
+## Prérequis
 
-* [Official Apache Maven documentation](https://maven.apache.org/guides/index.html)
-* [Spring Boot Maven Plugin Reference Guide](https://docs.spring.io/spring-boot/3.5.4/maven-plugin)
-* [Create an OCI image](https://docs.spring.io/spring-boot/3.5.4/maven-plugin/build-image.html)
-* [Spring Web](https://docs.spring.io/spring-boot/3.5.4/reference/web/servlet.html)
+*   Java JDK 17+
+*   Maven 3.8+
+*   Docker Desktop (pour les tests d'image en local)
 
-### Guides
+## Lancement en local
 
-The following guides illustrate how to use some features concretely:
+Pour tester le service sur votre machine locale, suivez ces étapes :
 
-* [Building a RESTful Web Service](https://spring.io/guides/gs/rest-service/)
-* [Serving Web Content with Spring MVC](https://spring.io/guides/gs/serving-web-content/)
-* [Building REST services with Spring](https://spring.io/guides/tutorials/rest/)
+1.  **Ouvrez un terminal** à la racine de ce projet.
 
-### Maven Parent overrides
+2.  **Lancez l'application** avec le wrapper Maven :
+    ```bash
+    ./mvnw spring-boot:run
+    ```
 
-Due to Maven's design, elements are inherited from the parent POM to the project POM.
-While most of the inheritance is fine, it also inherits unwanted elements like `<license>` and `<developers>` from the
-parent.
-To prevent this, the project POM contains empty overrides for these elements.
-If you manually switch to a different parent and actually want the inheritance, you need to remove those overrides.
+3.  **Vérifiez que le service fonctionne**. Ouvrez un autre terminal et utilisez `curl` (ou votre navigateur) pour interroger l'endpoint :
+    ```bash
+    curl http://localhost:8080/api/hello
+    ```
+    Vous devriez recevoir une réponse JSON comme celle-ci :
+    ```json
+    {"message":"Bonjour depuis le Backend Spring Boot sur GKE ! 🎉"}
+    ```
 
+> **Note sur CORS** : Le fichier `HelloController.java` contient une annotation `@CrossOrigin(origins = "http://localhost:3000")`. Celle-ci est essentielle pour permettre au frontend React (qui tourne sur le port 3000) de communiquer avec ce backend (sur le port 8080) pendant le développement local. En production sur GKE, cette communication sera gérée par le proxy Nginx du frontend.
+
+## Dockerisation de l'application
+
+Le `Dockerfile` à la racine de ce projet permet de créer une image conteneur portable de notre application.
+
+1.  **Compilez le projet** pour créer le fichier `.jar` exécutable :
+    ```bash
+    # L'option -DskipTests permet d'accélérer la compilation
+    mvn clean package -DskipTests
+    ```
+
+2.  **Construisez l'image Docker**. La commande suivante utilise les conventions de nommage pour Artifact Registry. Exécutez-la depuis un environnement où `gcloud` est configuré (comme Cloud Shell).
+    ```bash
+    # Assurez-vous que la variable d'environnement PROJECT_ID est définie
+    # export PROJECT_ID=$(gcloud config get-value project)
+    docker build -t europe-west1-docker.pkg.dev/${PROJECT_ID}/gke-lab-repo/backend:v1 .
+    ```
+
+## Déploiement sur GKE
+
+Une fois l'image Docker construite, elle doit être poussée vers un registre d'images (Artifact Registry) pour que GKE puisse y accéder.
+
+1.  **Poussez l'image vers Artifact Registry** :
+    ```bash
+    docker push europe-west1-docker.pkg.dev/${PROJECT_ID}/gke-lab-repo/backend:v1
+    ```
+
+2.  **Configuration Kubernetes** :
+    Ce service est déployé sur GKE à l'aide de deux fichiers de configuration principaux :
+
+    *   `backend-deployment.yaml`: Ce fichier demande à Kubernetes de créer plusieurs instances (pods) de notre application en se basant sur l'image Docker que nous venons de pousser. Il gère le cycle de vie des pods (création, mise à jour, auto-réparation).
+
+    *   `backend-service.yaml`: Ce fichier crée un point d'accès réseau **interne** au cluster, nommé `backend-service`. C'est un service de type `ClusterIP`, ce qui signifie qu'il n'est pas accessible depuis l'extérieur, mais que d'autres services à l'intérieur du cluster (comme notre frontend) peuvent le joindre en utilisant simplement son nom (`http://backend-service:8080`).
+
+## Commandes utiles
+
+-   **Compiler le projet :** `mvn clean package -DskipTests`
+-   **Lancer en local :** `./mvnw spring-boot:run`
+-   **Construire l'image Docker :** `docker build -t <nom-image> .`
+-   **Pousser l'image :** `docker push <nom-image>`
